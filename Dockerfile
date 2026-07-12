@@ -14,8 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Set environment variable for Python to run in unbuffered mode
+# Make sure Python runs in unbuffered mode
 ENV PYTHONUNBUFFERED=1
 
-# Run the bot with proper error handling
-CMD ["python", "-u", "bot.py"]
+# Run debug script first to check environment
+CMD python debug.py && python bot.py
