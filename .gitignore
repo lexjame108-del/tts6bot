@@ -12,3 +12,7 @@ venv/
 env/
 ENV/
 .venv
+*.log
+.DS_Store
+*.db
+*.sqlite3
