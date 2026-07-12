@@ -2,7 +2,6 @@ import os
 import logging
 import tempfile
 import sys
-from pathlib import Path
 from gtts import gTTS
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
@@ -34,8 +33,8 @@ LANGUAGES = {
 user_preferences = {}
 
 def get_token():
-    """Get token from multiple sources"""
-    # Try different environment variable names
+    """Get token from environment variables only (not from .env file)"""
+    # Only check environment variables, not .env file
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if token:
         return token
@@ -47,17 +46,6 @@ def get_token():
     token = os.getenv('TELEGRAM_TOKEN')
     if token:
         return token
-    
-    # Try to read from .env file (for local testing)
-    try:
-        with open('.env', 'r') as f:
-            for line in f:
-                if line.startswith('TELEGRAM_BOT_TOKEN='):
-                    token = line.strip().split('=', 1)[1]
-                    if token and not token.startswith('"'):
-                        return token
-    except:
-        pass
     
     return None
 
@@ -163,23 +151,23 @@ def main() -> None:
     """Start the bot."""
     logger.info("🔍 Looking for bot token...")
     
-    # Get token using our custom function
+    # Get token from environment variables
     token = get_token()
     
-    if not token:
-        logger.error("❌ No token found in environment variables!")
-        logger.info("Please set one of these environment variables:")
-        logger.info("  - TELEGRAM_BOT_TOKEN")
-        logger.info("  - BOT_TOKEN")
-        logger.info("  - TELEGRAM_TOKEN")
-        logger.info("\nOn Railway, go to your project -> Variables -> Add Variable")
+    if not token or token == "YOUR_BOT_TOKEN_HERE" or token == "your_bot_token_here":
+        logger.error("❌ Invalid or placeholder token found!")
+        logger.info("Please set your actual TELEGRAM_BOT_TOKEN in Railway environment variables")
+        logger.info("Go to: Railway Dashboard -> Your Project -> Variables -> Add Variable")
         sys.exit(1)
     
-    logger.info("✅ Token found! Starting bot...")
+    logger.info(f"✅ Token found! Token starts with: {token[:10]}...")
+    logger.info("🚀 Starting bot...")
     
     try:
+        # Create application
         application = Application.builder().token(token).build()
         
+        # Add command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("lang", language_menu))
@@ -188,7 +176,7 @@ def main() -> None:
         application.add_handler(MessageHandler(filters.VOICE, voice_handler))
         application.add_error_handler(error_handler)
         
-        logger.info("🚀 Bot is running...")
+        logger.info("✅ Bot is running and ready to accept messages!")
         application.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
