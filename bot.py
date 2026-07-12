@@ -30,11 +30,38 @@ LANGUAGES = {
     'hi': 'Hindi'
 }
 
-# User preferences (simple in-memory storage)
+# User preferences
 user_preferences = {}
 
+def get_token():
+    """Get token from multiple sources"""
+    # Try different environment variable names
+    token = os.getenv('TELEGRAM_BOT_TOKEN')
+    if token:
+        return token
+    
+    token = os.getenv('BOT_TOKEN')
+    if token:
+        return token
+    
+    token = os.getenv('TELEGRAM_TOKEN')
+    if token:
+        return token
+    
+    # Try to read from .env file (for local testing)
+    try:
+        with open('.env', 'r') as f:
+            for line in f:
+                if line.startswith('TELEGRAM_BOT_TOKEN='):
+                    token = line.strip().split('=', 1)[1]
+                    if token and not token.startswith('"'):
+                        return token
+    except:
+        pass
+    
+    return None
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a message when /start is issued."""
     user = update.effective_user
     await update.message.reply_text(
         f"Hi {user.first_name}! 👋\n\n"
@@ -47,7 +74,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Send a help message."""
     await update.message.reply_text(
         "🤖 How to use this bot:\n\n"
         "1. Simply send me any text message\n"
@@ -58,7 +84,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 async def language_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show language selection menu."""
     keyboard = []
     row = []
     for i, (code, name) in enumerate(LANGUAGES.items()):
@@ -76,7 +101,6 @@ async def language_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle language selection callback."""
     query = update.callback_query
     await query.answer()
     
@@ -91,33 +115,26 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 async def text_to_speech(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Convert text to speech and send audio."""
     user_id = update.effective_user.id
     text = update.message.text
     
-    # Check if text is too long
     if len(text) > 5000:
         await update.message.reply_text(
             "⚠️ Text is too long! Please send text under 5000 characters."
         )
         return
     
-    # Get user's language preference
     lang = user_preferences.get(user_id, {}).get('lang', 'en')
     
-    # Send typing action
     await update.message.chat.send_action(action="record_voice")
     
     try:
-        # Create temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_file:
             temp_path = tmp_file.name
         
-        # Convert text to speech
         tts = gTTS(text=text, lang=lang, slow=False)
         tts.save(temp_path)
         
-        # Send audio file
         with open(temp_path, 'rb') as audio_file:
             await update.message.reply_audio(
                 audio=audio_file,
@@ -126,66 +143,52 @@ async def text_to_speech(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 performer="TTS Bot"
             )
         
-        # Clean up temp file
         os.unlink(temp_path)
         
     except Exception as e:
         logger.error(f"Error in text_to_speech: {e}")
         await update.message.reply_text(
-            "❌ Sorry, an error occurred while converting text to speech. Please try again."
+            "❌ Sorry, an error occurred. Please try again."
         )
 
 async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle voice messages."""
     await update.message.reply_text(
         "🎤 I can only convert text messages to speech. Please send me a text message!"
     )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle errors."""
     logger.error(f"Update {update} caused error {context.error}")
-    try:
-        if update and update.effective_message:
-            await update.effective_message.reply_text(
-                "⚠️ An error occurred. Please try again later."
-            )
-    except:
-        pass
 
 def main() -> None:
     """Start the bot."""
-    # Get token from environment variable with better error handling
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    logger.info("🔍 Looking for bot token...")
+    
+    # Get token using our custom function
+    token = get_token()
     
     if not token:
-        logger.error("❌ TELEGRAM_BOT_TOKEN not found in environment variables!")
-        logger.info("Please set TELEGRAM_BOT_TOKEN in your Railway environment variables")
-        sys.exit(1)  # Exit with error code
+        logger.error("❌ No token found in environment variables!")
+        logger.info("Please set one of these environment variables:")
+        logger.info("  - TELEGRAM_BOT_TOKEN")
+        logger.info("  - BOT_TOKEN")
+        logger.info("  - TELEGRAM_TOKEN")
+        logger.info("\nOn Railway, go to your project -> Variables -> Add Variable")
+        sys.exit(1)
     
-    logger.info("✅ Bot token found, starting bot...")
+    logger.info("✅ Token found! Starting bot...")
     
     try:
-        # Create application
         application = Application.builder().token(token).build()
         
-        # Add command handlers
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("lang", language_menu))
-        
-        # Add callback query handler
         application.add_handler(CallbackQueryHandler(language_callback, pattern="^lang_"))
-        
-        # Add message handlers
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_speech))
         application.add_handler(MessageHandler(filters.VOICE, voice_handler))
-        
-        # Add error handler
         application.add_error_handler(error_handler)
         
-        logger.info("🚀 Bot is starting...")
-        
-        # Run the bot
+        logger.info("🚀 Bot is running...")
         application.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
