@@ -1,6 +1,7 @@
 import os
 import logging
 import tempfile
+import sys
 from pathlib import Path
 from gtts import gTTS
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -8,7 +9,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 
 # Enable logging
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,7 @@ LANGUAGES = {
     'hi': 'Hindi'
 }
 
-# User preferences (simple in-memory storage - use database for production)
+# User preferences (simple in-memory storage)
 user_preferences = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -61,7 +63,7 @@ async def language_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     row = []
     for i, (code, name) in enumerate(LANGUAGES.items()):
         row.append(InlineKeyboardButton(name, callback_data=f"lang_{code}"))
-        if len(row) == 3:  # 3 buttons per row
+        if len(row) == 3:
             keyboard.append(row)
             row = []
     if row:
@@ -81,7 +83,6 @@ async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang_code = query.data.replace("lang_", "")
     user_id = query.from_user.id
     
-    # Store preference (in-memory - consider using a database for production)
     user_preferences[user_id] = {'lang': lang_code}
     
     await query.edit_message_text(
@@ -94,7 +95,7 @@ async def text_to_speech(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = update.effective_user.id
     text = update.message.text
     
-    # Check if text is too long (gTTS limit is ~5000 characters)
+    # Check if text is too long
     if len(text) > 5000:
         await update.message.reply_text(
             "⚠️ Text is too long! Please send text under 5000 characters."
@@ -140,30 +141,56 @@ async def voice_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "🎤 I can only convert text messages to speech. Please send me a text message!"
     )
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle errors."""
+    logger.error(f"Update {update} caused error {context.error}")
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                "⚠️ An error occurred. Please try again later."
+            )
+    except:
+        pass
+
 def main() -> None:
     """Start the bot."""
-    # Get token from environment variable
+    # Get token from environment variable with better error handling
     token = os.getenv("TELEGRAM_BOT_TOKEN")
+    
     if not token:
-        raise ValueError("No TELEGRAM_BOT_TOKEN found in environment variables")
+        logger.error("❌ TELEGRAM_BOT_TOKEN not found in environment variables!")
+        logger.info("Please set TELEGRAM_BOT_TOKEN in your Railway environment variables")
+        sys.exit(1)  # Exit with error code
     
-    # Create application
-    application = Application.builder().token(token).build()
+    logger.info("✅ Bot token found, starting bot...")
     
-    # Add command handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("lang", language_menu))
-    
-    # Add callback query handler for language selection
-    application.add_handler(CallbackQueryHandler(language_callback, pattern="^lang_"))
-    
-    # Add message handlers
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_speech))
-    application.add_handler(MessageHandler(filters.VOICE, voice_handler))
-    
-    # Run the bot
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    try:
+        # Create application
+        application = Application.builder().token(token).build()
+        
+        # Add command handlers
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("help", help_command))
+        application.add_handler(CommandHandler("lang", language_menu))
+        
+        # Add callback query handler
+        application.add_handler(CallbackQueryHandler(language_callback, pattern="^lang_"))
+        
+        # Add message handlers
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_to_speech))
+        application.add_handler(MessageHandler(filters.VOICE, voice_handler))
+        
+        # Add error handler
+        application.add_error_handler(error_handler)
+        
+        logger.info("🚀 Bot is starting...")
+        
+        # Run the bot
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        
+    except Exception as e:
+        logger.error(f"❌ Failed to start bot: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
